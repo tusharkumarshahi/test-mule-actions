@@ -1,0 +1,67 @@
+name: 'Maven Build'
+description: >
+  Composite action that sets up Java 17 (Temurin), runs mvn clean package,
+  and exposes the built .jar path as an output.
+
+inputs:
+
+  java-version:
+    description: 'Java version. Defaults to 17.'
+    required: false
+    default: '17'
+
+  settings-xml-path:
+    description: 'Path to settings.xml relative to workspace root.'
+    required: false
+    default: ''
+
+  build-options:
+    description: 'Additional Maven -D flags.'
+    required: false
+    default: ''
+
+outputs:
+
+  artifact-path:
+    description: 'Relative path to the built .jar'
+    value: ${{ steps.find-artifact.outputs.artifact-path }}
+
+runs:
+  using: 'composite'
+  steps:
+
+    - name: Set up Java ${{ inputs.java-version }}
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: ${{ inputs.java-version }}
+        cache: 'maven'
+
+    - name: Validate settings.xml
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.settings-xml-path }}" ] && [ ! -f "${{ inputs.settings-xml-path }}" ]; then
+          echo "::error::settings.xml not found at '${{ inputs.settings-xml-path }}'."
+          exit 1
+        fi
+        echo "✓ settings.xml check passed"
+
+    - name: Maven build
+      shell: bash
+      run: |
+        mvn clean package \
+          -B \
+          ${{ inputs.settings-xml-path != '' && format('-s "{0}/{1}"', github.workspace, inputs.settings-xml-path) || '' }} \
+          ${{ inputs.build-options }}
+
+    - name: Find built artifact
+      id: find-artifact
+      shell: bash
+      run: |
+        JAR_PATH=$(find target -maxdepth 1 -name "*.jar" | head -1)
+        if [ -z "$JAR_PATH" ]; then
+          echo "::error::No .jar found in target/."
+          exit 1
+        fi
+        echo "artifact-path=$JAR_PATH" >> $GITHUB_OUTPUT
+        echo "✓ Built artifact: $JAR_PATH"
